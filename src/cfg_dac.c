@@ -18,6 +18,8 @@ void cfgDac(DAC_MAX_CURRENT maxCurr,CLKPWR_PCLKSEL_CCLK_DIV cclkDiv){
 	CLKPWR_SetPCLKDiv(CLKPWR_PCLKSEL_DAC, (uint32_t)cclkDiv);
 
 	DAC_SetBias(maxCurr);
+
+	DAC_UpdateValue(0);
 }
 
 void cfgDmaCounterEnable(uint16_t timeOut, FunctionalState doubBuffer){

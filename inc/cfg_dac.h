@@ -21,9 +21,10 @@
  * @brief Frequency division for the periphic
  */
 typedef enum{
-	DIV_1 = 0,
-	DIV_2,
-	DIV_4
+	DIV_4 = 0,
+	DIV_1 = 1,
+	DIV_2 = 2
+
 }CLKPWR_PCLKSEL_CCLK_DIV;
 
 /* ---------------------------- Public Functions ---------------------------- */
