@@ -11,21 +11,20 @@
 #define CFG_DAC_H_
 
 /* -------------------------------- Includes -------------------------------- */
-#include "lpc_types.h"
 #include "lpc17xx_dac.h"
-
+#include "lpc_types.h"
 
 /* ------------------------------ Public Types ------------------------------ */
 
 /**
  * @brief Frequency division for the periphic
  */
-typedef enum{
-	DIV_4 = 0,
-	DIV_1 = 1,
-	DIV_2 = 2
+typedef enum {
+    DIV_4 = 0,
+    DIV_1 = 1,
+    DIV_2 = 2
 
-}CLKPWR_PCLKSEL_CCLK_DIV;
+} CLKPWR_PCLKSEL_CCLK_DIV;
 
 /* ---------------------------- Public Functions ---------------------------- */
 
@@ -38,7 +37,7 @@ typedef enum{
  * @note:
  * - The DAC pin is configured for analog output.
  */
-void cfgDac(DAC_MAX_CURRENT maxCurr,CLKPWR_PCLKSEL_CCLK_DIV cclkDiv);
+void cfgDac(DAC_MAX_CURRENT maxCurr, CLKPWR_PCLKSEL_CCLK_DIV cclkDiv);
 
 /**
  * @brief	Set and enable the timer for DAC dma request
