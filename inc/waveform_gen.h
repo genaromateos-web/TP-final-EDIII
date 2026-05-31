@@ -2,7 +2,7 @@
  * @file        	waveform_gen.h
  * @brief       It contains the prototypes of the functions that generate
  * 				and modify waves.
- * @version     1.0
+ * @version     2.0
  * @date        25. May. 2026
  * @author      Genaro
  ***************************************************************************/
@@ -121,6 +121,20 @@ uint32_t calculatePhaseStep(uint16_t fWave);
  *                 an infinite loop if this limit is exceeded.
  */
 void fillBuffer(uint16_t *buffer, WaveGen_t *wave);
+
+/**
+ * @brief  Actualiza la frecuencia del generador a partir de una lectura ADC.
+ *
+ * Descarta los 2 LSBs del valor crudo de 12 bits (reducción de ruido), mapea
+ * linealmente los 10 bits restantes al rango [1 Hz, 1000 Hz] y recalcula el
+ * paso de fase DDS solo si la frecuencia resultante cambió.
+ *
+ * Debe llamarse cada vez que el ADC complete una conversión (cada 500 ms).
+ *
+ * @param waveGen   Puntero al struct del generador (se modifica en el lugar).
+ * @param adcRaw    Valor crudo de 12 bits leído del registro del ADC (0–4095).
+ */
+void waveUpdateFrequency(WaveGen_t *wave, uint16_t adcData);
 
 #endif /* WAVEFORM_GEN_H_ */
 

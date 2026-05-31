@@ -2,7 +2,7 @@
  * @file        	waveform_gen.c
  * @brief       It contains the definition of the functions that generate and
  * 				modify waves.
- * @version     1.0
+ * @version     2.0
  * @date        25. May. 2026
  * @author      Genaro
  ***************************************************************************/
@@ -107,6 +107,24 @@ void fillBuffer(uint16_t *buffer, WaveGen_t *wave) {
         // The LPC1769 DAC expects the 10-bit value left-shifted by 6 bits
         buffer[i] = sample << 6;
     }
+}
+
+void waveUpdateFrequency(WaveGen_t *wave, uint16_t adcData) {
+    /* 1. Quedarse con los 10 MSBs descartando los 2 LSBs ruidosos */
+    uint16_t adc10 = adcData >> 2; /* Rango resultante: 0 – 1023 */
+
+    /* 2. Mapeo lineal [0, 1023] ? [1 Hz, 1000 Hz]
+     *    freq = 1 + (adc10 × 999) / 1023
+     *    Cast a uint32_t obligatorio: 1023 × 999 = 1.021.977 > UINT16_MAX  */
+    uint32_t newFreq = 1UL + ((uint32_t)adc10 * 999UL) / 1023UL;
+
+    /* 3. Recalcular solo si el valor cambió (evita FP innecesario) */
+    if (newFreq == wave->frequency) {
+        return;
+    }
+
+    wave->frequency = newFreq;
+    wave->phaseStep = calculatePhaseStep(newFreq);
 }
 
 /* ------------------------------ End Of File ------------------------------- */
