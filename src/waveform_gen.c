@@ -135,7 +135,7 @@ void fillBuffer(uint16_t *buffer, WaveGen_t *wave) {
 
         /* The LPC1769 DAC expects the 10-bit value left-shifted by 6 bits
          * into the DACR register VALUE field                                    */
-        buffer[i] = sample;
+        buffer[i] = sample << 6;
     }
 }
 
