@@ -2,7 +2,7 @@
  * @file 		cfg_dac.h
  * @brief		Contains all enum definitions and function prototypes to
  * 				configure the DAC
- * @version     1.0
+ * @version     1.1
  * @date        26 may 2026
  * @author      Genaro
  ***************************************************************************/
@@ -48,7 +48,9 @@ void cfgDac(DAC_MAX_CURRENT maxCurr, CLKPWR_PCLKSEL_CCLK_DIV cclkDiv);
  * @note
  * -The DMA transfer request is enabled
  */
-void cfgDmaCounterEnable(uint16_t timeOut, FunctionalState doubBuffer);
+void dacCounterEnable(uint16_t timeOut, FunctionalState doubBuffer);
+
+void dacCounterDisable(void);
 
 #endif /* CFG_DAC_H_ */
 

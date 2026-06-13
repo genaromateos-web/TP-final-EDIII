@@ -12,6 +12,14 @@
 /* -------------------------------- Includes -------------------------------- */
 #include "lpc17xx_adc.h"
 
+/* ------------------------------ Public Macros ------------------------------ */
+/**Channel used by ADC */
+#define CHANNEL_ADC ADC_CHANNEL_2
+
+/* ------------------------------ Public Variables -------------------------- */
+/**Sample taken by the ADC */
+extern volatile uint16_t adcData;
+
 /* ---------------------------- Public Functions ---------------------------- */
 
 /**

@@ -1,7 +1,7 @@
 /***************************************************************************
  * @file        	cfg_dac.c
  * @brief       Contains the definitions of the functions to configure the DAC
- * @version     1.0
+ * @version     1.1
  * @date        26 may 2026
  * @author      Genaro
  ***************************************************************************/
@@ -22,8 +22,8 @@ void cfgDac(DAC_MAX_CURRENT maxCurr, CLKPWR_PCLKSEL_CCLK_DIV cclkDiv) {
     DAC_UpdateValue(0);
 }
 
-void cfgDmaCounterEnable(uint16_t timeOut, FunctionalState doubBuffer) {
-    DAC_SetDMATimeOut(timeOut);
+void dacCounterEnable(uint16_t timeOut, FunctionalState doubBuffer) {
+	DAC_SetDMATimeOut(timeOut);
 
     DAC_CONVERTER_CFG_T dacCfg;
 
@@ -32,6 +32,16 @@ void cfgDmaCounterEnable(uint16_t timeOut, FunctionalState doubBuffer) {
     dacCfg.doubleBuffer = doubBuffer;
 
     DAC_ConfigDAConverterControl(&dacCfg);
+}
+
+void dacCounterDisable(void){
+	DAC_CONVERTER_CFG_T dacCfg;
+
+	dacCfg.dmaCounter = DISABLE;
+	dacCfg.dmaRequest = DISABLE;
+	dacCfg.doubleBuffer = DISABLE;
+
+	DAC_ConfigDAConverterControl(&dacCfg);
 }
 
 /* ------------------------------ End Of File ------------------------------- */

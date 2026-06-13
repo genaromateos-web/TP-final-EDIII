@@ -8,12 +8,15 @@
 
 /* -------------------------------- Includes -------------------------------- */
 #include "cfg_adc.h"
-#include "lpc17xx_timer.h"
 #include "lpc17xx_clkpwr.h"
+#include "lpc17xx_timer.h"
+
+/* ------------------------------ Public Variables -------------------------- */
+volatile uint16_t adcData;
 
 /* ---------------------------- Public Functions ---------------------------- */
 
-void cfgAdc(ADC_CHANNEL channel){
+void cfgAdc(ADC_CHANNEL channel) {
     // Set ADC clock to achieve the maximum sampling rate of 200 kHz
     ADC_Init(200000);
     // Trigger a new conversion on each TIMER0 MATCH1 event
@@ -37,25 +40,27 @@ void cfgAdc(ADC_CHANNEL channel){
     ADC_Off();
 }
 
-void ADC_EnableIRQ(ADC_CHANNEL channel){
+void ADC_EnableIRQ(ADC_CHANNEL channel) {
     // Read global data register to clear the global DONE and OVERRUN flags
     ADC_GlobalGetData();
     // Read channel data register to clear the channel-specific DONE and OVERRUN flags
     ADC_ChannelGetData(channel);
     // Clear any ADC interrupt already pending in the NVIC before enabling
     NVIC_ClearPendingIRQ(ADC_IRQn);
+    // High priority
+    NVIC_SetPriority(ADC_IRQn, 0);
     // Enable the ADC interrupt line in the NVIC
     NVIC_EnableIRQ(ADC_IRQn);
 }
 
-void ADC_On(void){
+void ADC_On(void) {
     // Enable the ADC peripheral clock via PCONP
     CLKPWR_ConfigPPWR(CLKPWR_PCONP_PCAD, ENABLE);
     // Bring the ADC out of power-down mode
     ADC_PowerUp();
 }
 
-void ADC_Off(void){
+void ADC_Off(void) {
     // Put the ADC into power-down mode before cutting its clock
     ADC_PowerDown();
     // Disable the ADC peripheral clock via PCONP to reduce power consumption
