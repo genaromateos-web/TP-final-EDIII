@@ -342,7 +342,7 @@ El acumulador de fase no representa una frecuencia directamente sino una velocid
 
 > **Nota sobre corrección de dígitos:** No existe tecla de borrado. Si se ingresa un dígito incorrecto, se debe presionar `#` para confirmar el valor actual (aunque sea erróneo) y luego reingresar el parámetro en la siguiente edición, o bien presionar `*` (Stop) para abortar y reiniciar el flujo desde el principio.
 
-#### Modo 1 — Generar onda de forma digital
+#### Modo 1 — Generadorr onda de forma digital
 
 **Estado general:**
 - Al ingresar al modo, el sistema arranca en **Stop**.
@@ -370,13 +370,14 @@ La selección requiere `#`. Si no se presiona ninguna, se conserva el valor ante
 **Paso 3 — Ingreso de amplitud:**
 - Se ingresan dígitos que representan la amplitud en **décimas de Volt** (ej: 33 → 3,3 V).
 - Se presiona `#` para confirmar.
-- Si se confirma con valor 0, o se avanza sin modificar, se conserva el valor anterior.
+- Si se confirma con valor 0, o se avanza sin modificar, se guarda 0 V como amplitud válida. 
 - Valor por defecto (primera ejecución): **33** → 3,3 V.
-- Rango válido: 1–33 (0,1 V a 3,3 V).
+- Rango válido: 1–33 (0 V a 3,3 V).
 
 **Paso 4 — Start:** 
 - Se presiona `*` para iniciar la generación con los parámetros guardados.
 - La onda se reproduce de forma continua. No se admite ningún cambio de parámetros mientras el sistema está en Start.
+- Durante todos los pasos anteriores (Stop), la salida del DAC está desactivada: no se produce ninguna señal analógica en el pin de salida. 
 
 **Paso 5 — Stop:** 
 - Se presiona `*` nuevamente para detener la generación. 
@@ -401,6 +402,8 @@ Idéntico al Modo 1. Dígitos en décimas de Volt, confirmado con #. Conserva va
 **Paso 3 — Start** 
 Se presiona `*`. La frecuencia es determinada en tiempo real por el potenciómetro.
 
+Durante todos los pasos anteriores (Stop), la salida del DAC está desactivada: no se produce ninguna señal analógica en el pin de salida. 
+
 **Paso 4 — Stop** 
 Idéntico al Modo 1. Vuelve al Paso 1 conservando los parámetros anteriores.
 
@@ -416,7 +419,7 @@ Idéntico al Modo 1. Vuelve al Paso 1 conservando los parámetros anteriores.
 
 | Situación | Comportamiento |
 |-----------|----------------|
-| Se presiona `#` con campo en 0 | Se descarta; se conserva el valor anterior |
+| Se presiona `#` con campo en 0 | Se acepta; se guarda 0 V como amplitud válida |
 | Se presiona `*` (Start) antes de confirmar un campo | El campo no modificado conserva su valor anterior |
 | Se presiona A/B/C estando en Start | Ignorado |
 | Se presionan dígitos estando en Start | Ignorados |
@@ -427,6 +430,55 @@ Idéntico al Modo 1. Vuelve al Paso 1 conservando los parámetros anteriores.
 
 ---
 
+### Máquina de estados finita del teclado.
+#### Estructura de datos
+El estado del sistema se representa con dos instancias de `ModeContext_t`, una por modo de operación, indexadas por `activeMode`:
+
+c
+
+`ModeContext_t modeCtx[2]; // [0] = Modo 1, [1] = Modo 2`
+
+Cada instancia almacena de forma independiente la forma de onda guardada, la frecuencia (solo Modo 1), la amplitud, el paso actual del flujo de configuración, el buffer de dígitos en construcción y la cantidad de dígitos ingresados. Al cambiar de modo con la tecla D, el índice activo cambia pero ambas instancias conservan sus valores intactos.
+
+#### Estados y transiciones
+Cada modo tiene su propio flujo de pasos, que avanzan siempre en la misma dirección:
+
+`Modo 1:  STEP_WAVEFORM → STEP_FREQUENCY → STEP_AMPLITUDE → STEP_RUNNING`
+
+`Modo 2:  STEP_WAVEFORM → STEP_AMPLITUDE → STEP_RUNNING`
+
+El sistema siempre vuelve a `STEP_WAVEFORM` al presionar `*` desde `STEP_RUNNING (Stop)`. No hay transiciones hacia atrás dentro de un ciclo de configuración: si el usuario quiere corregir un campo ya confirmado, debe completar el ciclo hasta Start y volver.
+
+#### Despacho de teclas
+`fsmProcessKey()` actúa como dispatcher central, una función cuyo único trabajo es **recibir algo y decidir a quién enviárselo**  .
+
+Antes de evaluar el paso actual, verifica si la tecla es D, que tiene efecto inmediato desde cualquier estado. Si no lo es, delega en el handler del paso actual:
+
+fsmProcessKey(key)  
+  &emsp;&emsp;  │     
+  &emsp;&emsp;  ├── key == KEY_D → cambio de modo inmediato   
+  &emsp;&emsp;  │   
+   &emsp;&emsp;  └── según ctx->step:   
+    &emsp;&emsp; &emsp;&emsp;      ├── STEP_WAVEFORM  → handleWaveformStep()  
+    &emsp;&emsp; &emsp;&emsp;      ├── STEP_FREQUENCY → handleFrequencyStep()   
+    &emsp;&emsp; &emsp;&emsp;      ├── STEP_AMPLITUDE → handleAmplitudeStep()  
+    &emsp;&emsp; &emsp;&emsp;      └── STEP_RUNNING   → handleRunningStep()  
+#### Ingreso de dígitos
+El ingreso numérico usa un acumulador (`inputBuffer`) que construye el valor de a un dígito por vez mediante la operación `valor = valor * 10 + dígito`. Esto permite procesar cada tecla apenas se presiona sin necesidad de esperar a que el usuario "termine" de escribir. Al confirmar con `#`, el valor acumulado se valida y, si es aceptable, reemplaza el parámetro guardado. Si el valor es `0` (campo vacío o dígito cero), el parámetro guardado se conserva sin modificar, excepto en amplitud donde 0 es un valor válido que equivale a `0` V. El campo acepta hasta 4 dígitos; al alcanzarlos queda bloqueado hasta que el usuario confirme o inicie la generación.
+
+#### Amplitud: conversión de décimas de volt a escala Q10
+La amplitud se ingresa en décimas de volt (0–33) pero se almacena en escala Q10 (0–1024) para ser compatible con el motor de generación de ondas. La conversión es:
+
+amplitude_q10 = (tenths × 1024) / 33
+
+Con `tenths = 33` el resultado es exactamente `1024` (escala completa, 3,3 V). Con `tenths = 0` el resultado es `0` (0 V, señal plana). La conversión se realiza una sola vez al confirmar el valor, no en cada muestra generada.
+
+#### Control del ADC en Modo 2
+
+El ADC y el timer del potenciómetro son habilitados por la FSM únicamente al entrar a `STEP_RUNNING` en Modo 2, y deshabilitados al salir de ese estado (Stop o cambio de modo con D). En ningún otro momento están activos. Esto garantiza que `ADC_IRQHandler` solo puede dispararse cuando el sistema está efectivamente en generación por potenciómetro.
+
+
+---
 ### Display de 7 segmentos — Referencia completa
 
 #### Hardware
