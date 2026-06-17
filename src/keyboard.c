@@ -51,6 +51,7 @@ void cfgKeyboard(void) {
     GPIO_IntConfigPort(PORT_2, ALL_COLS, GPIO_INT_FALLING);
 
     /* Clear any pending EINT3 flag before enabling to avoid a spurious ISR */
+    GPIO_ClearInt(PORT_2, ALL_COLS);
     NVIC_ClearPendingIRQ(EINT3_IRQn);
     NVIC_EnableIRQ(EINT3_IRQn);
 
