@@ -14,7 +14,7 @@
 #include "LPC17xx.h"
 #include "stdint.h"
 
-/* ------------------------------ Public Types ------------------------------ */
+/* ------------------------------ Public macros ------------------------------ */
 
 /* --- Port 2 row pin masks (outputs, driven LOW to activate a row) --- */
 #define ROW_0_PIN (1U << 0) /* P2.0 – Row 0 */
@@ -36,6 +36,7 @@
 #define MAX_NROWS 4
 #define MAX_NCOLS 4
 
+/* ------------------------------ Public Types ------------------------------ */
 /**
  * @brief  Symbolic identifiers for every key on the 4x4 matrix keyboard.
  *

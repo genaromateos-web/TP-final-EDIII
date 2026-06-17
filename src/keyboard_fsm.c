@@ -1,7 +1,7 @@
 /***************************************************************************
  * @file        keyboard_fsm.c
- * @brief       Implementación de la máquina de estados para el control del
- *              generador de señales mediante teclado matricial.
+ * @brief       Finite state machine implementation for signal generator
+ *              control via matrix keypad.
  *
  * @version     1.0
  * @date        13. Jun. 2026
@@ -12,61 +12,62 @@
 #include "keyboard_fsm.h"
 #include "LPC17xx.h"
 #include "cfg_adc.h"
-#include "cfg_timer.h"
-#include "waveform_gen.h"
 #include "cfg_dac.h"
+#include "cfg_timer.h"
+#include "main.h"
+#include "waveform_gen.h"
 
-/* ----------------------------- Macros privados ---------------------------- */
+/* ------------------------------ Private macros ---------------------------- */
 
-/** Frecuencia por defecto al arrancar el sistema por primera vez (Hz). */
+/** Default frequency on first system startup (Hz). */
 #define DEFAULT_FREQUENCY 60U
 
 /**
- * @brief Amplitud por defecto: 1024 unidades Q10 = 3,3 V (escala completa).
- *        Corresponde a 33 décimas de volt ingresadas por teclado.
+ * @brief Default amplitude: 1024 Q10 units = full scale 3.3 V.
+ *        Corresponds to 33 tenths of a volt entered via keypad.
  */
 #define DEFAULT_AMPLITUDE 1024U
 
-/** Amplitud mínima aceptable en décimas de volt (0,1 V). */
+/** Minimum valid amplitude in tenths of a volt (0.1 V). */
 #define AMPLITUDE_MIN_TENTHS 0U
 
-/** Amplitud máxima aceptable en décimas de volt (3,3 V). */
+/** Maximum valid amplitude in tenths of a volt (3.3 V). */
 #define AMPLITUDE_MAX_TENTHS 33U
 
-/** Máximo de dígitos que acepta cualquier campo numérico. */
+/** Maximum number of digits accepted by any numeric input field. */
 #define MAX_DIGITS 4U
 
-/* ----------------------------- Variables públicas ------------------------- */
+/* ---------------------------- Public variables ---------------------------- */
 
 GeneratorMode_t activeMode = GEN_MODE_1;
 
 ModeContext_t modeCtx[2];
 
-/* ----------------------------- Helpers privados --------------------------- */
+/* ---------------------------- Private helpers ----------------------------- */
 
 /**
- * @brief  Convierte décimas de volt (0–33) a la escala Q10 interna (0–1024).
+ * @brief  Converts tenths of a volt (0–33) to the internal Q10 scale (0–1024).
  *
- *         Fórmula: amplitude_q10 = (tenths * 1024) / 33
- *         Con tenths = 33 -> 1024 (escala completa, 3,3 V).
- *         Con tenths =  0 -> 0 (0V).
+ *         Formula: amplitude_q10 = (tenths * 1024) / 33
+ *         tenths = 33 ? 1024 (full scale, 3.3 V)
+ *         tenths =  0 ? 0    (0 V)
  *
- * @param  tenths  Valor en décimas de volt (1–33).
- * @return         Amplitud en escala Q10
+ * @param  tenths  Value in tenths of a volt (0–33).
+ * @return         Amplitude in Q10 scale.
  */
 static uint16_t tenthsToQ10(uint16_t tenths) { return (uint16_t)(((uint32_t)tenths * 1024U) / 33U); }
 
 /**
- * @brief  Aplica el contexto guardado del modo activo sobre currentWave.
+ * @brief  Applies the saved context of the active mode to currentWave.
  *
- *         Actualiza el puntero currentWave, la forma de onda, la frecuencia,
- *         la amplitud y recalcula el paso de fase.
- *         En Modo 2 no se actualiza la frecuencia (la maneja el ADC).
+ *         Updates the currentWave pointer, waveform type, amplitude,
+ *         and recalculates the phase step.
+ *         In Mode 2 the frequency is not updated here — the ADC handles it.
  */
 static void applyContextToWave(void) {
     ModeContext_t *ctx = &modeCtx[activeMode];
 
-    /* Seleccionar la estructura WaveGen_t correspondiente a la forma de onda */
+    /* Select the WaveGen_t structure that matches the saved waveform type */
     switch (ctx->waveType) {
     case WAVE_SINE:
         currentWave = &sine;
@@ -82,18 +83,21 @@ static void applyContextToWave(void) {
         break;
     }
 
-    /* Aplicar amplitud */
+    /* Apply saved amplitude */
     currentWave->amplitude = ctx->amplitude;
 
-    /* En Modo 1 la frecuencia es fija; en Modo 2 la actualiza el ADC */
+    /* Mode 1: fixed frequency set by the user; Mode 2: ADC updates it */
     if (activeMode == GEN_MODE_1) {
         currentWave->frequency = ctx->frequency;
         currentWave->phaseStep = calculatePhaseStep(ctx->frequency);
     }
+
+    /* Raise the data-transmission flag */
+    waveControl |= bitMask(3);
 }
 
 /**
- * @brief  Reinicia el buffer de ingreso de dígitos del modo activo.
+ * @brief  Resets the digit input buffer of the active mode.
  */
 static void clearInputBuffer(void) {
     modeCtx[activeMode].inputBuffer = 0;
@@ -101,37 +105,38 @@ static void clearInputBuffer(void) {
 }
 
 /**
- * @brief  Acumula un dígito en el buffer de ingreso del modo activo.
+ * @brief  Appends a digit to the active mode's input buffer.
  *
- *         Si ya se alcanzaron MAX_DIGITS el dígito se ignora (campo bloqueado).
+ *         If MAX_DIGITS has already been reached the digit is discarded
+ *         (field locked).
  *
- * @param  digit  Dígito a acumular (0–9).
- * @return        1 si el dígito fue aceptado, 0 si el campo está bloqueado.
+ * @param  digit  Digit to append (0–9).
+ * @return        1 if the digit was accepted; 0 if the field is locked.
  */
 static uint8_t pushDigit(uint8_t digit) {
     ModeContext_t *ctx = &modeCtx[activeMode];
 
     if (ctx->digitCount >= MAX_DIGITS) {
-        /* Campo bloqueado: se llegó al máximo de 4 dígitos */
+        /* Field locked: maximum of 4 digits already entered */
         return 0;
     }
 
-    /* Concatenar el dígito: valor = valor_actual * 10 + nuevo_dígito */
+    /* Shift existing value left one decimal place and append the new digit */
     ctx->inputBuffer = ctx->inputBuffer * 10U + digit;
     ctx->digitCount++;
 
     return 1;
 }
 
-/* ---------------------- Handlers de cada paso de la FSM ------------------- */
+/* -------------------- FSM step handlers ----------------------------------- */
 
 /**
- * @brief  Maneja las teclas durante STEP_WAVEFORM.
+ * @brief  Handles key presses during STEP_WAVEFORM.
  *
- *         A / B / C  : previsualiza la onda en el display.
- *         #          : confirma la selección y avanza al siguiente paso.
- *         *          : va directo a STEP_RUNNING con los parámetros guardados.
- *         D          : se maneja en el dispatcher global.
+ *         A / B / C  : preview the selected waveform on the display.
+ *         #          : confirm the selection and advance to the next step.
+ *         *          : jump straight to STEP_RUNNING with saved parameters.
+ *         D          : handled by the global dispatcher before this function.
  */
 static void handleWaveformStep(Key_t key) {
     ModeContext_t *ctx = &modeCtx[activeMode];
@@ -139,33 +144,30 @@ static void handleWaveformStep(Key_t key) {
     switch (key) {
 
     case KEY_A:
-        /* Previsualizar sinusoidal*/
         ctx->waveType = WAVE_SINE;
         displayOnWaveformPreview(WAVE_SINE);
         break;
 
     case KEY_B:
-        /* Previsualizar cuadrada*/
         ctx->waveType = WAVE_SQUARE;
         displayOnWaveformPreview(WAVE_SQUARE);
         break;
 
     case KEY_C:
-        /* Previsualizar triangular*/
         ctx->waveType = WAVE_TRIANGLE;
         displayOnWaveformPreview(WAVE_TRIANGLE);
         break;
 
     case KEY_HASH:
-        /* Confirmar la onda seleccionada y avanzar al siguiente campo */
+        /* Confirm the selected waveform and advance to the next field */
         clearInputBuffer();
 
         if (activeMode == GEN_MODE_1) {
-            /* Modo 1: siguiente paso es ingresar frecuencia */
+            /* Mode 1: next step is frequency entry */
             ctx->step = STEP_FREQUENCY;
             displayOnFrequencyStep();
         } else {
-            /* Modo 2: no hay ingreso de frecuencia, ir directo a amplitud */
+            /* Mode 2: no frequency entry — go directly to amplitude */
             ctx->step = STEP_AMPLITUDE;
             displayOnAmplitudeStep();
         }
@@ -173,17 +175,18 @@ static void handleWaveformStep(Key_t key) {
 
     case KEY_ASTERISK:
         /*
-         * El usuario presiona * antes de seleccionar onda.
-         * Se inicia la generación con los parámetros guardados anteriormente.
+         * User pressed * before selecting a waveform.
+         * Start output using the previously saved parameters.
          */
         applyContextToWave();
-        dacCounterEnable(24, DISABLE); /* Reanudar salida del DAC */
+        dacCounterEnable(24, DISABLE);
         ctx->step = STEP_RUNNING;
 
         if (activeMode == GEN_MODE_1) {
+            dacCounterEnable(24, DISABLE);
             displayOnRunningMode1();
         } else {
-            /* Habilitar ADC y timer para que el potenciómetro tome control */
+            /* Enable ADC and timer so the potentiometer controls frequency */
             ADC_On();
             TIM_On(LPC_TIM0);
             displayOnRunningMode2(ctx->frequency);
@@ -191,22 +194,21 @@ static void handleWaveformStep(Key_t key) {
         break;
 
     default:
-        /* Dígitos y resto de teclas se ignoran en este paso */
+        /* Digits and all other keys are ignored in this step */
         break;
     }
 }
 
 /**
- * @brief  Maneja las teclas durante STEP_FREQUENCY (solo Modo 1).
+ * @brief  Handles key presses during STEP_FREQUENCY (Mode 1 only).
  *
- *         0–9  ? acumula dígito.
- *         #    ? confirma la frecuencia y avanza a STEP_AMPLITUDE.
- *         *    ? inicia la generación con la frecuencia guardada.
+ *         0–9  : accumulate digit.
+ *         #    : confirm frequency and advance to STEP_AMPLITUDE.
+ *         *    : start output using the previously saved frequency.
  */
 static void handleFrequencyStep(Key_t key) {
     ModeContext_t *ctx = &modeCtx[activeMode];
 
-    /* En STEP_FREQUENCY solo llegan teclas del Modo 1 */
     switch (key) {
 
     case KEY_0:
@@ -219,25 +221,23 @@ static void handleFrequencyStep(Key_t key) {
     case KEY_7:
     case KEY_8:
     case KEY_9: {
-        uint8_t digit = (uint8_t)key; /* Key_t numérico == valor del dígito */
+        uint8_t digit = (uint8_t)key; /* Numeric Key_t value equals the digit */
         if (pushDigit(digit)) {
-            /* Informar al display el valor acumulado hasta ahora */
             displayOnDigitInput(ctx->inputBuffer, ctx->digitCount);
         }
-        /* Si pushDigit devuelve 0, el campo está bloqueado y no se notifica */
+        /* If pushDigit returns 0, the field is locked — no display update */
         break;
     }
 
     case KEY_HASH: {
         /*
-         * Confirmar frecuencia.
-         * Si el valor ingresado es 0 (campo vacío o se ingresó "0"),
-         * se conserva la frecuencia guardada anteriormente.
+         * Confirm the entered frequency.
+         * If the buffer is 0 (empty field or explicit "0" entered),
+         * keep the previously saved frequency unchanged.
          */
         if (ctx->inputBuffer > 0) {
             ctx->frequency = ctx->inputBuffer;
         }
-        /* inputBuffer == 0 -> se descarta, se conserva el valor anterior */
 
         clearInputBuffer();
         ctx->step = STEP_AMPLITUDE;
@@ -247,28 +247,28 @@ static void handleFrequencyStep(Key_t key) {
 
     case KEY_ASTERISK:
         /*
-         * El usuario presiona * sin confirmar la frecuencia.
-         * Se descarta el ingreso parcial y se inicia con la frecuencia guardada.
+         * User pressed * without confirming frequency.
+         * Discard the partial entry and start with the saved frequency.
          */
         clearInputBuffer();
         applyContextToWave();
-        dacCounterEnable(24, DISABLE); /* Reanudar salida del DAC */
+        dacCounterEnable(24, DISABLE);
         ctx->step = STEP_RUNNING;
         displayOnRunningMode1();
         break;
 
     default:
-        /* A, B, C y D se ignoran aquí*/
+        /* A, B, C, D are ignored in this step */
         break;
     }
 }
 
 /**
- * @brief  Maneja las teclas durante STEP_AMPLITUDE (ambos modos).
+ * @brief  Handles key presses during STEP_AMPLITUDE (both modes).
  *
- *         0–9  : acumula dígito.
- *         #    : confirma la amplitud y avanza a STEP_RUNNING.
- *         *    : inicia la generación con la amplitud guardada.
+ *         0–9  : accumulate digit.
+ *         #    : confirm amplitude and advance to STEP_RUNNING.
+ *         *    : start output using the previously saved amplitude.
  */
 static void handleAmplitudeStep(Key_t key) {
     ModeContext_t *ctx = &modeCtx[activeMode];
@@ -294,25 +294,25 @@ static void handleAmplitudeStep(Key_t key) {
 
     case KEY_HASH: {
         /*
-         * Confirmar amplitud.
-         * Rango válido en décimas de volt: 0–33.
-         * Si tenths > 33 -> fuera de rango, se conserva el valor anterior.
+         * Confirm the entered amplitude.
+         * Valid range: 0–33 tenths of a volt.
+         * If the value is out of range, keep the previously saved amplitude.
          */
         uint16_t tenths = ctx->inputBuffer;
 
         if (tenths >= AMPLITUDE_MIN_TENTHS && tenths <= AMPLITUDE_MAX_TENTHS) {
-            /* Convertir décimas de volt a escala Q10 y guardar */
             ctx->amplitude = tenthsToQ10(tenths);
         }
 
         clearInputBuffer();
         applyContextToWave();
         ctx->step = STEP_RUNNING;
+        dacCounterEnable(24, DISABLE);
 
         if (activeMode == GEN_MODE_1) {
             displayOnRunningMode1();
         } else {
-            /* Habilitar periféricos del potenciómetro */
+            /* Enable potentiometer peripherals */
             ADC_On();
             TIM_On(LPC_TIM0);
             displayOnRunningMode2(ctx->frequency);
@@ -322,15 +322,16 @@ static void handleAmplitudeStep(Key_t key) {
 
     case KEY_ASTERISK:
         /*
-         * Iniciar generación descartando el ingreso parcial de amplitud.
-         * Se usa la amplitud guardada anteriormente.
+         * User pressed * without confirming amplitude.
+         * Discard the partial entry and start with the saved amplitude.
          */
         clearInputBuffer();
         applyContextToWave();
-        dacCounterEnable(24, DISABLE); /* Reanudar salida del DAC */
+        dacCounterEnable(24, DISABLE);
         ctx->step = STEP_RUNNING;
 
         if (activeMode == GEN_MODE_1) {
+            dacCounterEnable(24, DISABLE);
             displayOnRunningMode1();
         } else {
             ADC_On();
@@ -345,10 +346,10 @@ static void handleAmplitudeStep(Key_t key) {
 }
 
 /**
- * @brief  Maneja las teclas durante STEP_RUNNING (generación activa).
+ * @brief  Handles key presses during STEP_RUNNING (output active).
  *
- *         Solo responden * (Stop) y D (cambio de modo).
- *         Todas las demás teclas son ignoradas.
+ *         Only * (stop) and D (mode switch) are processed.
+ *         All other keys are ignored.
  */
 static void handleRunningStep(Key_t key) {
     ModeContext_t *ctx = &modeCtx[activeMode];
@@ -356,34 +357,30 @@ static void handleRunningStep(Key_t key) {
     switch (key) {
 
     case KEY_ASTERISK:
-        /*
-         * Stop: detener la generación y volver al paso de selección de onda.
-         * Si estábamos en Modo 2, apagar el ADC y el timer del potenciómetro.
-         */
+        /* Stop output — no signal should be present during configuration */
+        dacCounterDisable();
+        DAC_UpdateValue(0);
+
+        /* If running in Mode 2, shut down the ADC and potentiometer timer */
         if (activeMode == GEN_MODE_2) {
             TIM_Off(LPC_TIM0);
             ADC_Off();
         }
-        /* Detener la salida del DAC: no debe haber señal durante la configuración */
-        dacCounterDisable();
-        DAC_UpdateValue(0);
 
         ctx->step = STEP_WAVEFORM;
         displayOnWaveformStep();
         break;
 
     default:
-        /*
-         * A, B, C, dígitos, HASH: ignorados durante la generación.
-         */
+        /* A, B, C, digits, HASH: ignored while output is active */
         break;
     }
 }
 
-/* ----------------------------- Funciones públicas ------------------------- */
+/* ---------------------------- Public functions ---------------------------- */
 
 void fsmInit(void) {
-    /* ----- Modo 1: frecuencia por teclado ----- */
+    /* ----- Mode 1: keyboard-controlled frequency ----- */
     modeCtx[GEN_MODE_1].waveType = WAVE_SINE;
     modeCtx[GEN_MODE_1].frequency = DEFAULT_FREQUENCY;
     modeCtx[GEN_MODE_1].amplitude = DEFAULT_AMPLITUDE;
@@ -391,9 +388,9 @@ void fsmInit(void) {
     modeCtx[GEN_MODE_1].inputBuffer = 0;
     modeCtx[GEN_MODE_1].digitCount = 0;
 
-    /* ----- Modo 2: frecuencia por potenciómetro ----- */
+    /* ----- Mode 2: ADC-controlled frequency ----- */
     modeCtx[GEN_MODE_2].waveType = WAVE_SINE;
-    modeCtx[GEN_MODE_2].frequency = 0; /* No tiene sentido en Modo 2; el ADC lo define */
+    modeCtx[GEN_MODE_2].frequency = 0; /* Not used in Mode 2; ADC defines it */
     modeCtx[GEN_MODE_2].amplitude = DEFAULT_AMPLITUDE;
     modeCtx[GEN_MODE_2].step = STEP_WAVEFORM;
     modeCtx[GEN_MODE_2].inputBuffer = 0;
@@ -401,7 +398,7 @@ void fsmInit(void) {
 
     activeMode = GEN_MODE_1;
 
-    /* Mostrar el estado inicial en el display */
+    /* Show initial state on the display */
     displayOnWaveformStep();
 }
 
@@ -409,38 +406,42 @@ void fsmProcessKey(Key_t key) {
     ModeContext_t *ctx = &modeCtx[activeMode];
 
     /* -----------------------------------------------------------------
-     * Tecla D: cambio de modo global.
-     * Se procesa antes que cualquier otra tecla, desde cualquier paso.
+     * Key D: global mode switch.
+     * Processed before any other key, from any step.
      * ----------------------------------------------------------------- */
     if (key == KEY_D) {
-        /* Si estábamos en Modo 2 corriendo, apagar el ADC y el timer */
+        /* Stop output — no signal during configuration */
+        dacCounterDisable();
+        DAC_UpdateValue(0);
+
+        /* If Mode 2 was running, shut down the ADC and potentiometer timer */
         if (activeMode == GEN_MODE_2 && ctx->step == STEP_RUNNING) {
             TIM_Off(LPC_TIM0);
             ADC_Off();
         }
 
         /*
-         * Descartar cualquier ingreso parcial del modo que se abandona.
-         * Los valores ya confirmados (waveType, frequency, amplitude) se conservan.
+         * Discard any partial entry in the mode being left.
+         * Confirmed values (waveType, frequency, amplitude) are preserved.
          */
         clearInputBuffer();
 
-        /* Cambiar al otro modo */
+        /* Switch to the other mode */
         activeMode = (activeMode == GEN_MODE_1) ? GEN_MODE_2 : GEN_MODE_1;
 
         /*
-         * El nuevo modo siempre arranca en Stop.
-         * Si estaba en medio de una configuración previa, vuelve a STEP_WAVEFORM.
+         * The new mode always starts in the stopped state.
+         * If it was mid-configuration, reset it to STEP_WAVEFORM.
          */
         modeCtx[activeMode].step = STEP_WAVEFORM;
 
-        /* Actualizar display al estado actual del nuevo modo */
+        /* Refresh the display for the new mode's current state */
         displayOnWaveformStep();
         return;
     }
 
     /* -----------------------------------------------------------------
-     * Despachar al handler correspondiente al paso actual del modo activo.
+     * Dispatch to the handler for the current step of the active mode.
      * ----------------------------------------------------------------- */
     switch (ctx->step) {
 
@@ -449,7 +450,7 @@ void fsmProcessKey(Key_t key) {
         break;
 
     case STEP_FREQUENCY:
-        /* STEP_FREQUENCY solo existe en Modo 1; en Modo 2 nunca se llega aquí */
+        /* STEP_FREQUENCY exists only in Mode 1; Mode 2 never reaches this */
         handleFrequencyStep(key);
         break;
 
@@ -466,11 +467,11 @@ void fsmProcessKey(Key_t key) {
     }
 }
 
-/* --------- Implementaciones por defecto (weak) de los hooks de display ---- */
+/* ----------- Default (weak) implementations of display hooks -------------- */
 /*
- * Estas funciones no hacen nada hasta que el módulo de display las sobreescriba.
- * Al ser __attribute__((weak)), el linker usará la versión del módulo de display
- * si existe, sin necesidad de modificar keyboard_fsm.c.
+ * These functions do nothing until the display module overrides them.
+ * Being __attribute__((weak)), the linker will use the display module's
+ * version when available, with no changes required here.
  */
 
 __attribute__((weak)) void displayOnWaveformStep(void) {}
