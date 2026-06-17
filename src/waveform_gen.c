@@ -11,6 +11,7 @@
 
 /* -------------------------------- Includes -------------------------------- */
 #include "waveform_gen.h"
+#include "main.h"
 #include <math.h>
 
 /* ---------------------------- Public Variables ---------------------------- */
@@ -157,6 +158,8 @@ void waveUpdateFrequency(WaveGen_t *wave, uint16_t adcData) {
 
     wave->frequency = newFreq;
     wave->phaseStep = calculatePhaseStep(newFreq);
+    // Se levanta flag de transmision de datos
+    waveControl |= bitMask(3);
 }
 
 /* ------------------------------ End Of File ------------------------------- */

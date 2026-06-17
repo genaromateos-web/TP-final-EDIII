@@ -8,8 +8,10 @@
 
 /* -------------------------------- Includes -------------------------------- */
 #include "cfg_adc.h"
+#include "keyboard_fsm.h"
 #include "lpc17xx_clkpwr.h"
 #include "lpc17xx_timer.h"
+#include "main.h"
 
 /* ------------------------------ Public Variables -------------------------- */
 volatile uint16_t adcData;
@@ -65,6 +67,16 @@ void ADC_Off(void) {
     ADC_PowerDown();
     // Disable the ADC peripheral clock via PCONP to reduce power consumption
     CLKPWR_ConfigPPWR(CLKPWR_PCONP_PCAD, DISABLE);
+}
+
+/* ---------------------------- Interrupt Handler --------------------------- */
+
+void ADC_IRQHandler(void) {
+    if (activeMode != GEN_MODE_2 || modeCtx[GEN_MODE_2].step != STEP_RUNNING) {
+        while (1) {}; // Error, you shouldn't be here
+    }
+    adcData = ADC_ChannelGetData(CHANNEL_ADC);
+    waveControl |= bitMask(1);
 }
 
 /* ------------------------------ End Of File ------------------------------- */
