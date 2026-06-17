@@ -31,6 +31,8 @@
  */
 void cfgTimer0(uint32_t matValue); // matValue in µs. Directly determines the ADC sampling frequency.
 
+void cfgTimer1(uint32_t matValue);
+
 /**
  * @brief  Enables the peripheral clock of the given timer and starts it.
  *

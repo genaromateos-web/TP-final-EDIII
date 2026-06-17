@@ -12,6 +12,8 @@
 #include "lpc17xx_clkpwr.h"
 #include "lpc17xx_timer.h"
 #include "lpc_types.h"
+#include "main.h"
+#include "../../MCUXpressoIDE_25.6.136/workspace/cfg_display.h"
 
 /* ---------------------------- Public Functions ---------------------------- */
 
@@ -39,6 +41,29 @@ void cfgTimer0(uint32_t matValue) {
 
     // Timer is left disabled after configuration; turned on only when needed
     TIM_Off(LPC_TIM0);
+}
+
+void cfgTimer1(uint32_t matValue){
+	TIM_TIMERCFG_T timerCfg;
+	timerCfg.prescaleOpt   = TIM_US;
+	timerCfg.prescaleValue = 1;   /* 1 µs por tick */
+	TIM_InitTimer(LPC_TIM1, &timerCfg);
+
+	TIM_MATCHCFG_T matchCfg;
+	matchCfg.channel    = TIM_MATCH_0;
+	matchCfg.intEn      = ENABLE;
+	matchCfg.stopEn     = DISABLE;
+	matchCfg.resetEn    = ENABLE;
+	matchCfg.extOpt     = TIM_NOTHING;
+	matchCfg.matchValue = matValue;
+	TIM_ConfigMatch(LPC_TIM1, &matchCfg);
+
+	/* Prioridad debajo de DMA y ADC */
+	NVIC_SetPriority(TIMER1_IRQn, 2);
+	NVIC_ClearPendingIRQ(TIMER1_IRQn);
+	NVIC_EnableIRQ(TIMER1_IRQn);
+
+	TIM_Enable(LPC_TIM1);
 }
 
 void TIM_On(LPC_TIM_TypeDef *TIMx) {
@@ -71,6 +96,13 @@ void TIM_Off(LPC_TIM_TypeDef *TIMx) {
     } else if (TIMx == LPC_TIM3) {
         CLKPWR_ConfigPPWR(CLKPWR_PCONP_PCTIM3, DISABLE);
     }
+}
+
+/* ------------------------- Interrupt Handler ------------------------- */
+void TIMER1_IRQHandler(void) {
+    TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+    // Levanto flag
+    waveControl |= bitMask(4);
 }
 
 /* ------------------------------ End Of File ------------------------------- */
