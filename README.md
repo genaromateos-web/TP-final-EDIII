@@ -29,7 +29,7 @@
    - Flujo básico de operación
 4. [Arquitectura del sistema](#arquitectura-del-sistema)
    - Diagrama de módulos
-5. [Configuración de periféricos del microcontrolador](#configuración-de-periféricos-del-microcontrolador)
+5. [Configuración de periféricos del microcontrolador](#5-configuración-de-periféricos-del-microcontrolador)
 6. [Funcionamiento del software](#6-funcionamiento-del-software)
    1. Estructura del programa
    2. Inicialización del sistema
@@ -121,10 +121,23 @@ El diagrama de módulos ilustra la organización interna del microcontrolador LP
 
 ## 5 Configuración de periféricos del microcontrolador
 
-*(Sección pendiente de desarrollo)*
+### UART0
+
+La UART0 se inicializa mediante `cfgUart()` durante el startup del sistema. Se utiliza exclusivamente para transmisión de parámetros hacia la PC; no se configura recepción.
+
+| Parámetro | Valor |
+|-----------|-------|
+| Pin TX | P0.2 (función UART0) |
+| Baudrate | 9600 bps |
+| Bits de datos | 8 |
+| Paridad | Ninguna |
+| Bits de stop | 1 |
+| Modo DMA | Deshabilitado |
+| Modo TX | Non-blocking |
+
+La FIFO TX se vacía durante la inicialización.
 
 ---
-
 ## 6 Funcionamiento del software
 
 ### Fundamentos de generación de ondas por tabla DDS
@@ -581,6 +594,63 @@ Idéntico al paso de amplitud del Modo 1. No existe paso de frecuencia.
 | Se presiona `*`(Start) sin haber ingresado dígitos | Se pasa a Start con el valor guardado; el display muestra **- - - -** (Modo 1) o frecuencia del potenciómetro (Modo 2) |
 | Frecuencia del potenciómetro supera 4 dígitos | No ocurre el potenciómetro está mapeado con un límite superior de 9999 Hz |
 | Se presiona `#` con 0 en pantalla | El valor no se guarda; el display vuelve a mostrar 0 para indicar campo vacio|
+
+
+---
+
+### Comunicación UART y monitoreo en PC
+
+#### Protocolo serie
+
+El microcontrolador transmite los parámetros activos del generador mediante un paquete fijo de 7 bytes cada vez que el sistema está en estado `STEP_RUNNING`. La función responsable es `UART_SendWaveParams()`, definida en `cfg_uart.c`.
+
+| Byte | Contenido |
+|------|-----------|
+| 0 | `0xAA` — delimitador de inicio |
+| 1 | Frecuencia MSB |
+| 2 | Frecuencia LSB |
+| 3 | Amplitud MSB (escala Q10, rango 0–1024) |
+| 4 | Amplitud LSB (escala Q10, rango 0–1024) |
+| 5 | Tipo de onda: `0` = senoidal, `1` = cuadrada, `2` = triangular |
+| 6 | `0xFF` — delimitador de fin |
+
+El receptor sincroniza en el byte `0xAA` antes de leer el resto del paquete, lo que permite realinearse automáticamente ante tramas corruptas o parciales.
+
+#### Interfaz gráfica (`monitor.py`)
+
+Script Python que recibe los paquetes por puerto serie y visualiza la señal en tiempo real mediante matplotlib. Opera en dos hilos: un hilo de fondo lee el puerto serie y actualiza el estado compartido con `threading.Lock`, mientras el hilo principal ejecuta la animación a ~30 fps (`interval=33 ms`).
+
+La amplitud recibida en escala Q10 se convierte a voltios pico para escalar el gráfico:
+
+```
+amp_Vpp  = (amplitude / 1024) × VCC
+amp_peak = amp_Vpp / 2
+```
+
+La velocidad de scroll de la onda se mapea logarítmicamente sobre el rango de frecuencias (1–9999 Hz), de modo que la visualización resulte estable tanto a frecuencias bajas como altas.
+
+**Uso:**
+
+```bash
+pip install pyserial matplotlib numpy
+# Ajustar PORT en el script según el puerto COM asignado al LPC1769
+python monitor.py
+```
+<img src="./pictures/monitor.jpeg" >
+
+#### Simulador (`simulador.py`)
+
+Script auxiliar para desarrollo y pruebas sin hardware. Genera paquetes válidos del mismo formato que el LPC1769, enviando frecuencia y amplitud que oscilan en forma de triángulo (bounce) entre sus valores mínimo y máximo. La forma de onda avanza al siguiente tipo cada vez que la frecuencia alcanza el mínimo, recorriendo el ciclo senoidal → cuadrada → triangular indefinidamente.
+
+Permite verificar el comportamiento completo de `monitor.py` de forma independiente del microcontrolador.
+
+**Uso:**
+
+```bash
+# Conectar simulador.py a un puerto COM virtual emparejado con monitor.py
+# Ajustar PORT en el script según corresponda
+python simulador.py
+```
 
 ---
 
